@@ -361,6 +361,11 @@ true
 dnsConfig:
   searches:
   - {{ .Values.global.privateHostedZoneDomainName }}
+{{ if (.Values.global.serviceDNSPolicyNdots) }}
+  options:
+    - name: ndots
+      value: {{ .Values.global.serviceDNSPolicyNdots | quote }}
+  {{- end }}
 {{- end }}
 {{- end }}
 
@@ -375,8 +380,26 @@ dnsConfig:
     {{- if (.Values.pegasearch.srsAuth).privateKey }}
         {{- .Values.pegasearch.srsAuth.privateKey | b64enc }}
     {{- else }}
-        {{- fail "A valid entry is required for pegasearch.srsAuth.privateKey, when request authentication mechanism(IDP) is enabled between SRS and Pega Infinity i.e. pegasearch.srsAuth.enabled is true." | quote}}
+        {{- fail "A valid entry is required for pegasearch.srsAuth.privateKey or pegasearch.srsAuth.external_secret_name, when request authentication mechanism(IDP) is enabled between SRS and Pega Infinity i.e. pegasearch.srsAuth.enabled is true." | quote }}
     {{- end }}
+{{- end }}
+{{- end }}
+
+{{- define "srsAuthEnvSecretFrom" }}
+{{- if .Values.pegasearch.srsAuth.external_secret_name }}
+name: {{ .Values.pegasearch.srsAuth.external_secret_name }}
+key: SRS_OAUTH_PRIVATE_KEY
+{{- else }}
+name: pega-srs-auth-secret
+key: privateKey
+{{- end }}
+{{- end }}
+
+{{- define "tcpKeepAliveProbe" }}
+{{- if .node.tcpKeepAliveProbe }}
+sysctls:
+- name: net.ipv4.tcp_keepalive_time
+  value: "{{ .node.tcpKeepAliveProbe }}"
 {{- end }}
 {{- end }}
 
@@ -492,6 +515,30 @@ servicePort: use-annotation
   {{- end -}}
 {{- end -}}
 
+{{- define "isHzEncryptionEnabled" }}
+  {{- if .Values.hazelcast.encryption.enabled -}}
+    true
+  {{- else -}}
+    false
+  {{- end -}}
+{{- end -}}
+
+{{- define "isHzHighlySecureCryptoModeEnabled" }}
+  {{- if and .Values.hazelcast.encryption.enabled  .Values.global.highlySecureCryptoModeEnabled -}}
+    true
+  {{- else -}}
+    false
+  {{- end -}}
+{{- end -}}
+
+{{- define "isPegaHighlySecureCryptoModeEnabled" }}
+  {{- if .Values.global.highlySecureCryptoModeEnabled -}}
+    true
+  {{- else -}}
+    false
+  {{- end -}}
+{{- end -}}
+
 {{- define "pegaCredentialVolumeTemplate" }}
 - name: {{ template "pegaVolumeCredentials" }}
   projected:
@@ -514,5 +561,13 @@ servicePort: use-annotation
 
     - secret:
         name: {{ include "pega-diagnostic-secret-name" $}}
-
+  {{- if (eq (include "isHzEncryptionEnabled" .) "true") }}
+    - secret:
+        name: hz-encryption-secrets
+        items:
+          - key: HZ_SSL_KEYSTORE_PASSWORD
+            path: HZ_SSL_KEYSTORE_PASSWORD
+          - key: HZ_SSL_TRUSTSTORE_PASSWORD
+            path: HZ_SSL_TRUSTSTORE_PASSWORD
+  {{- end}}
 {{- end}}
